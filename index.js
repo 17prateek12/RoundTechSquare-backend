@@ -3,20 +3,37 @@ const express = require("express");
 const cors = require("cors");
 const bodyParser = require("body-parser");
 const nodemailer = require("nodemailer");
+const mongoose = require("mongoose");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const corsOptions = {
-    origin: "http://localhost:3000",
-    methods: "POST,GET",
-    credentials: true,
-  };
 
-app.use(cors(corsOptions));
+mongoose.connect(process.env.MONGO_URI);
+
+const db = mongoose.connection;
+db.on("error", console.error.bind(console, "MongoDB connection error:"));
+db.once("open", () => console.log("Connected to MongoDB"));
+
+app.use(cors());
 app.use(bodyParser.json());
 
-app.get("/api/messages", (req, res) => {
-  res.json({ message: "API is working!" });
+const messageSchema = new mongoose.Schema({
+  name: String,
+  email: String,
+  phone: String,
+  message: String,
+  timestamp: { type: Date, default: Date.now },
+});
+
+const Message = mongoose.model("Message", messageSchema);
+
+app.get("/api/messages", async (req, res) => {
+  try {
+    const messages = await Message.find().sort({ timestamp: -1 }); // Retrieve messages in descending order
+    res.json(messages);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to retrieve messages" });
+  }
 });
 
 app.post("/api/contact", async (req, res) => {
@@ -27,19 +44,20 @@ app.post("/api/contact", async (req, res) => {
   }
 
   try {
+    const newMessage = new Message({ name, email, phone, message });
+    await newMessage.save();
+
     const transporter = nodemailer.createTransport({
       service: "gmail",
       auth: {
-        user: process.env.EMAIL_USER, 
-        pass: process.env.EMAIL_PASS, 
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
       },
     });
 
     const mailOptions = {
       from: process.env.EMAIL_USER,
-      to: [
-       "darsh@roundtechsquare.com", "minakshi@roundtechsquare.com"
-    ],
+      to: ["darsh@roundtechsquare.com", "minakshi@roundtechsquare.com"],
       subject: "New Contact Form Submission",
       html: `
         <h2>New Contact Form Submission</h2>
@@ -53,9 +71,9 @@ app.post("/api/contact", async (req, res) => {
 
     await transporter.sendMail(mailOptions);
 
-    res.status(200).json({ success: true, message: "Email sent successfully!" });
+    res.status(200).json({ success: true, message: "Message saved and email sent successfully!" });
   } catch (error) {
-    console.error("Email sending error:", error);
+    console.error("Error:", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
